@@ -1,100 +1,231 @@
 import java.util.ArrayList;
-import java.util.Collections;
-import processing.core.PApplet;
- class Physics
-{
-    static ArrayList<Object> PHYSICS_OBJECTS = new ArrayList<>();
-    static int TESTS_PER_HITBOX = 3;
-    static float WORLD_GRAVITY = -0.05f;
+import java.util.Arrays;
 
-    static void CreateObject(Vector3 pos,float radius)
+
+class Physics
+{
+    ArrayList<Object> PHYSICS_OBJECTS = new ArrayList<>();
+    int TESTS_PER_HITBOX = 3; //placeholder
+    float WORLD_GRAVITY = -0.0f;
+
+    Object CreateObject(Vector3 pos,float radius)
     {
-        Circle c = new Circle(new Vector2(0.0f,0.0f),radius);
-        Object o = new Object(Object.Type.DynamicAngular,pos,new Square[]{},new Circle[]{c});
+        Circle c = new Circle(new Vector2(0.0f,0.0f),radius,PHYSICS_OBJECTS.size());
+        Object o = new Object(Type.DynamicAngular,pos,new ArrayList<Square>(),new ArrayList<Circle>(Arrays.asList(c)));
+
+        //calculate volume to get mass
+        float volume = radius*2.0f*3.1415f;
+        o.MASS = volume;
+
         PHYSICS_OBJECTS.add(o);
+        return PHYSICS_OBJECTS.get(PHYSICS_OBJECTS.size()-1);
     }
-    static Hit physicsTick(float delta)
+    Object CreateObject(Vector3 pos,Vector2 widthHeight)
+    {
+        Square c = new Square(new Vector2(0.0f,0.0f),widthHeight,PHYSICS_OBJECTS.size());
+        Object o = new Object(Type.DynamicAngular,pos,new ArrayList<Square>(Arrays.asList(c)),new ArrayList<Circle>());
+
+        float volume = widthHeight.x * widthHeight.y;
+        o.MASS = volume;
+
+        PHYSICS_OBJECTS.add(o);
+        return PHYSICS_OBJECTS.get(PHYSICS_OBJECTS.size()-1);
+    }
+    void physicsTick(float delta)
     {
         tickVelocity();
-       return checkHits();
+        resolveIntersections();
     }
-    static void tickVelocity()
+    void tickVelocity()
     {
-        for(var obj : PHYSICS_OBJECTS)
+        for(var obj : PHYSICS_OBJECTS) //changes the position by the velocity
         {
-            if(obj.TYPE == Object.Type.Static)
+            if(obj.TYPE == Type.Static)
                 continue;
 
-
-            obj.VELOCITY.y +=  obj.GRAVITY_MULTIPLIER * Physics.WORLD_GRAVITY;
+            obj.VELOCITY.y +=  obj.GRAVITY_MULTIPLIER * WORLD_GRAVITY;
 
             obj.POS.x += obj.VELOCITY.x;
             obj.POS.y += obj.VELOCITY.y;
-            System.out.println("velocity " + obj.VELOCITY.y);
         }
     }
-    static Hit checkHits()
+
+    void resolveIntersections()
     {
-        for (int i = 0; i < PHYSICS_OBJECTS.size(); i++)
+        for (var obj1p : PHYSICS_OBJECTS)
         {
-            var obj = PHYSICS_OBJECTS.get(i);
-            var hit = checkHitAgainstAll(obj.HIT_BOX_CIRCLE[0]);
-            return hit;
-        }
-        return null;
-    }
-    static Hit checkHitAgainstAll(Circle c1)
-    {
-        for(int i = 0; i < PHYSICS_OBJECTS.size(); i++)
-        {
-            if(i == c1.parentIndex)
+            obj1p.touchingObject  = false;
+            obj1p.otherObjIndex = -1;
+            if(obj1p.TYPE == Type.Inactive)
                 continue;
 
-            //circle circle intersect
-            Circle c2 = PHYSICS_OBJECTS.get(i).HIT_BOX_CIRCLE[0];
-
-            Vector2 p1 = c1.ORIGIN.add(PHYSICS_OBJECTS.get(c1.parentIndex).POS);
-            Vector2 p2 = c2.ORIGIN.add(PHYSICS_OBJECTS.get(c2.parentIndex).POS);
-
-            var relativePos = p1.subtract(p2);
-            float dist = relativePos.mag();
-            if(dist > (c1.RADIUS + c2.RADIUS)/2.0f)
-                continue;
-
-            var hit = new Hit();
-            Vector2 dir = relativePos.normalize();
-            Vector2 hitPos = dir.multiply(dist - c1.RADIUS/2.0f).add(p2);
-
-            hit.hitPosition = hitPos;
-
-
-
-            //handle collision
-            var obj1 = PHYSICS_OBJECTS.get(c1.parentIndex);
-            var obj2 = PHYSICS_OBJECTS.get(c2.parentIndex);
-
-            if(obj1.TYPE != Object.Type.Static && obj2.TYPE != Object.Type.Static)
+            for (var obj2p : PHYSICS_OBJECTS)
             {
-               var mag1 = obj1.VELOCITY.mag();
-                var mag2 = obj2.VELOCITY.mag();
+                //region setup
+                if(obj2p.TYPE == Type.Inactive)
+                    continue;
 
-                obj1.VELOCITY = dir.multiply(-mag1);
-                obj2.VELOCITY = dir.multiply(-mag2);
+                if (obj1p == obj2p)
+                    continue;
+                var obj1 = obj1p;
+                var obj2 = obj2p;
+
+                if (obj1.HIT_BOX_SQUARE.size() == 0 && obj2.HIT_BOX_SQUARE.size() != 0)
+                {
+                    obj2 = obj1p;
+                    obj1 = obj2p;
+                }
+                //endregion
+                //region circle circle test
+                if (obj1.HIT_BOX_CIRCLE.size() != 0 && obj2.HIT_BOX_CIRCLE.size() != 0) //if both objects have circle hitboxes
+                {
+                    //circle circle intersect
+                    Circle c1 = obj1.HIT_BOX_CIRCLE.get(0);
+                    Circle c2 = obj2.HIT_BOX_CIRCLE.get(0);
+
+                    Vector2 p1 = c1.ORIGIN.add(PHYSICS_OBJECTS.get(c1.parentIndex).POS);
+                    Vector2 p2 = c2.ORIGIN.add(PHYSICS_OBJECTS.get(c2.parentIndex).POS);
+
+                    var relativePos = p1.subtract(p2);
+                    float dist = relativePos.mag();
+
+                    if (dist > (c1.RADIUS + c2.RADIUS) / 2.0f)
+                        continue; //no hit
+
+                    Vector2 dir = relativePos.normalize();
+                    Vector2 hitPos = dir.multiply(dist - c1.RADIUS / 2.0f).add(p2); //may use later
+
+                    //handle collision
+                    if (obj1.TYPE != Type.Static && obj2.TYPE != Type.Static)
+                    {
+                        var mag1 = obj1.VELOCITY.mag();
+                        var mag2 = obj2.VELOCITY.mag();
+
+                        obj1.VELOCITY = dir.multiply(mag1);
+                        obj2.VELOCITY = dir.multiply(-mag2);
+                    }
+                    if (obj1.TYPE != Type.Static && obj2.TYPE ==Type.Static)
+                    {
+                        var mag1 = obj1.VELOCITY.mag();
+                        obj1.VELOCITY = dir.multiply(mag1);
+                    }
+                    if (obj1.TYPE == Type.Static && obj2.TYPE != Type.Static)
+                    {
+                        var mag1 = obj2.VELOCITY.mag();
+                        obj2.VELOCITY = dir.multiply(-mag1);
+                    }
+                    obj1.otherObjIndex = c2.parentIndex; obj1.touchingObject = true;
+                    obj2.otherObjIndex = c1.parentIndex; obj2.touchingObject = true;
+                }
+                //endregion
+                //region circle square
+                if (obj1.HIT_BOX_SQUARE.size() != 0 && obj2.HIT_BOX_CIRCLE.size() != 0)
+                {
+                    Square c1 = obj1.HIT_BOX_SQUARE.get(0); //collider 1, square
+                    var c2 = obj2.HIT_BOX_CIRCLE.get(0); //collider 2, circle
+
+                    Vector2 p2 = c2.ORIGIN.add(PHYSICS_OBJECTS.get(c2.parentIndex).POS);
+                    Vector2 p1 = c1.ORIGIN.add(PHYSICS_OBJECTS.get(c1.parentIndex).POS);
+
+                    Vector2 relativePos = new Vector2(Math.abs(p1.x - p2.x), Math.abs(p1.y - p2.y));
+                    Vector2 overlap = new Vector2(relativePos.x - (c2.RADIUS / 2.0f + c1.widthHeight.x), relativePos.y - (c2.RADIUS / 2.0f + c1.widthHeight.y));
+
+                    if (overlap.x > 0.0f || overlap.y > 0.0f)
+                        continue;
+
+                    //make each object act on one another
+
+                    Vector2 dir =new Vector2(0.0f,0.0f);
+                    Vector2 centreDir = p1.subtract(p2).normalize();
+                    //region calculate normal of square
+                    //the likely side the hit is on is the smaller of the x and y overlap, this will give me the axis i need to worry about, and i can get which side by checking the dir
+                    if(overlap.x > overlap.y)//worry about x axis
+                    {
+                        if(centreDir.x > 0)//right side
+                        {
+                            dir = new Vector2(1.0f,0.0f);
+                        }
+                        else //left side
+                        {
+                            dir = new Vector2(-1.0f,0.0f);
+                        }
+                    }
+                    else  //worry about y axis
+                    {
+                        if(centreDir.y > 0)//top side
+                        {
+                            dir = new Vector2(0.0f,1.0f);
+                        }
+                        else //bot side
+                        {
+                            dir = new Vector2(0.0f,-1.0f);
+                        }
+                    }
+
+                    //final step of determining the normal of the square, this checks if any of the corners lie inside the circle and gives a diagonal normal if so.
+                    if(p2.x > p1.x + c1.widthHeight.x)//left side
+                    {
+                        if(p2.y > p1.y + c1.widthHeight.y)          //bottom left
+                            dir = new Vector2(-1.0f,-1.0f);
+                        if(p2.y < p1.y - c1.widthHeight.y)          //top left
+                            dir = new Vector2(-1.0f,1.0f);
+                    }
+                    if(p2.x < p1.x - c1.widthHeight.x)              //right
+                    {
+                        if(p2.y > p1.y + c1.widthHeight.y)          //bottom right
+                            dir = new Vector2(1.0f,-1.0f);
+                        if(p2.y < p1.y - c1.widthHeight.y)          //top right
+                            dir = new Vector2(1.0f,1.0f);
+                    }
+                    //endregion
+
+                    //handle collision
+                    if (obj1.TYPE != Type.Static && obj2.TYPE != Type.Static)
+                    {
+                        var mag1 = obj1.VELOCITY.mag();
+                        var mag2 = obj2.VELOCITY.mag();
+
+                        obj1.VELOCITY = dir.multiply(-mag1);
+                        obj2.VELOCITY = dir.multiply(mag2);
+                    }
+                    if (obj1.TYPE != Type.Static && obj2.TYPE == Type.Static)
+                    {
+                        var mag1 = obj1.VELOCITY.mag();
+
+                        obj1.VELOCITY = dir.multiply(mag1);
+                    }
+                    if (obj1.TYPE == Type.Static && obj2.TYPE != Type.Static)
+                    {
+                        if(dir.x != 0)
+                            obj2.VELOCITY.x = dir.multiply(-Math.abs(obj2.VELOCITY.x)).x;
+                        if(dir.y != 0)
+                            obj2.VELOCITY.y = dir.multiply(-Math.abs(obj2.VELOCITY.y)).y;
+                    }
+
+                    obj1.otherObjIndex = c2.parentIndex; obj1.touchingObject = true;
+                    obj2.otherObjIndex = c1.parentIndex; obj2.touchingObject = true;
+                }
+                //endregion
             }
-            return hit;
         }
-        return null;
     }
 }
-class Hit
+enum Type
 {
-    Vector2 hitPosition;
-    float dist;
+    Static,
+    Dynamic,
+    DynamicAngular, //default
+    Inactive
 }
 class Object
 {
+    ///vars for use in other files
+    Boolean touchingObject;
+    int otherObjIndex;
+    ///
+
     Type TYPE;
-    Vector2 SCALE = new Vector2(1.0f,1.0f);
+    Vector2 SCALE;
     Vector3 POS;
     Vector2 VELOCITY;
     float ANGULAR_VEL;
@@ -103,40 +234,31 @@ class Object
     float FRICTION;
     float ELASTICITY;
     float ROTATION;
-    float GRAVITY_MULTIPLIER =1.0f;
+    float GRAVITY_MULTIPLIER = 1.0f;
 
-    Square[] HIT_BOX_SQUARE;
-    Circle[] HIT_BOX_CIRCLE;
-
-    enum Type
-    {
-        Static,
-        Dynamic,
-        DynamicAngular;
-    }
+    ArrayList<Square> HIT_BOX_SQUARE;
+    ArrayList<Circle> HIT_BOX_CIRCLE;
 
 
-    public Object(Type t,Vector3 pos, Square[] hit_boxes, Circle[] hit_circle)
+    public Object(Type t,Vector3 pos,    ArrayList<Square> hit_boxes, ArrayList<Circle>  hit_circle)
     {
         TYPE = t;
         POS = pos;
         HIT_BOX_SQUARE = hit_boxes;
         HIT_BOX_CIRCLE = hit_circle;
         VELOCITY = new Vector2(0.0f,0.0f);
-        //calculate mass from volume
-        //transport center to centre of mass by shifting hit-boxes
     }
-
-
 }
 class Square
 {
     Vector2 ORIGIN;
-    Vector2 BRCORNER;
-    void Square(Vector2 origin,Vector2 bottomRight)
+    Vector2 widthHeight;
+    int parentIndex;
+    Square(Vector2 origin,Vector2 widthAndHeight, int parent)
     {
         ORIGIN = origin;
-        BRCORNER = bottomRight;
+        widthHeight = widthAndHeight;
+        parentIndex = parent;
     }
 }
 class Circle
@@ -144,11 +266,11 @@ class Circle
     Vector2 ORIGIN;
     float RADIUS;
     int parentIndex;
-    public Circle(Vector2 origin,float radius)
+    public Circle(Vector2 origin,float radius, int parent)
     {
         ORIGIN = origin;
         RADIUS = radius;
-        parentIndex = Physics.PHYSICS_OBJECTS.size();
+        parentIndex = parent;
     }
 }
 
@@ -156,57 +278,69 @@ class Vector2 {
     public float x;
     public float y;
 
-    public Vector2(Float X, Float Y) {
+    public Vector2(Float X, Float Y)
+    {
         x = X;
         y = Y;
     }
 
-    public Vector2(String X, String Y) {
+    public Vector2(String X, String Y)
+    {
         x = Float.valueOf(X);
         y = Float.valueOf(Y);
     }
-
-    public Vector2 add(Vector2 v) {
+    float dotProduct(Vector2 v2)
+    {
+        return this.x * v2.x + this.y * v2.y;
+    }
+    public Vector2 add(Vector2 v)
+    {
         Vector2 out = new Vector2(0.0f, 0.0f);
         out.x = x + v.x;
         out.y = y + v.y;
         return out;
     }
-    public Vector2 add(Vector3 v) {
+    public Vector2 add(Vector3 v)
+    {
         Vector2 out = new Vector2(0.0f, 0.0f);
         out.x = x + v.x;
         out.y = y + v.y;
         return out;
     }
-    public Vector2 subtract(Vector2 v) {
+    public Vector2 subtract(Vector2 v)
+    {
         Vector2 out = new Vector2(0.0f, 0.0f);
         out.x = x - v.x;
         out.y = y - v.y;
         return out;
     }
 
-    public Vector2 multiply(Vector2 v) {
+    public Vector2 multiply(Vector2 v)
+    {
         Vector2 out = new Vector2(0.0f, 0.0f);
         out.x = x * v.x;
         out.y = y * v.y;
         return out;
     }
 
-    public Vector2 multiply(Float n) {
+    public Vector2 multiply(Float n)
+    {
         Vector2 out = new Vector2(0.0f, 0.0f);
         out.x = x * n;
         out.y = y * n;
         return out;
     }
 
-    public Vector2 divide(Float n) {
+    public Vector2 divide(Float n)
+    {
         Vector2 out = new Vector2(0.0f, 0.0f);
         out.x = x / n;
         out.y = y / n;
         return out;
     }
 
-    public Vector2 divide(Vector2 n) {
+    public Vector2 divide(Vector2 n)
+    {
         Vector2 out = new Vector2(0.0f, 0.0f);
         out.x = x / n.x;
         out.y = y / n.y;
@@ -214,7 +348,8 @@ class Vector2 {
     }
 
 
-    static Vector2 clipRot(Vector2 v) {
+    Vector2 clipRot(Vector2 v)
+    {
         Vector2 out = new Vector2(0.0f, 0.0f);
         if (v.x > 90.0f)
             out.x = 90.0f;
@@ -229,7 +364,8 @@ class Vector2 {
         return out;
     }
 
-    static Vector2 clipRot(float x, float y) {
+    Vector2 clipRot(float x, float y)
+    {
         Vector2 out = new Vector2(0.0f, 0.0f);
         if (x > 90.0f)
             out.x = 90.0f;
@@ -243,7 +379,7 @@ class Vector2 {
 
         return out;
     }
-     float dist(Vector2 p2)
+    float dist(Vector2 p2)
     {
         Vector2 p1 = this;
         var v = p1.subtract(p2);
@@ -255,8 +391,27 @@ class Vector2 {
     }
     Vector2 normalize()
     {
-      float mag = this.mag();
-      return this.divide(mag);
+        float mag = this.mag();
+        if(mag == 0)
+            return new Vector2(0.0f,1.0f);
+        return this.divide(mag);
+    }
+    Vector2 clamp()
+    {
+        Vector2 out = new Vector2(0.0f,0.0f);
+        if (this.x > 1.0f)
+            out.x = 1.0f;
+        if(this.y > 1.0f)
+            out.y = 1.0f;
+
+        //now for negative
+
+        if(this.x < -1.0f)
+            out.x = -1.0f;
+        if(this.y < -1.0f)
+            out.y = -1.0f;
+
+        return out;
     }
 }
 
@@ -267,7 +422,7 @@ class Vector3
     float y;
     float z;
 
-    public static Vector3 subtract(Vector3 x,Vector3 v)
+    public  Vector3 subtract(Vector3 x,Vector3 v)
     {
         Vector3 out = new Vector3(0.0f,0.0f,0.0f);
         out.x = x.x - v.x;
@@ -275,7 +430,7 @@ class Vector3
         out.z = x.z - v.z;
         return out;
     }
-    public static Vector3 add(Vector3 x,Vector3 v)
+    public Vector3 add(Vector3 x,Vector3 v)
     {
         Vector3 out = new Vector3(0.0f,0.0f,0.0f);
         out.x = x.x + v.x;
@@ -296,7 +451,7 @@ class Vector3
         y = Float.valueOf(Y);
         z = Float.valueOf(Z);
     }
-    public static String toStr(Vector3 in)
+    public String toStr(Vector3 in)
     {
         String out = "Vector3(x: ";
         out += in.x;
@@ -355,67 +510,9 @@ class Vector3
         return out;
     }
 
-    static Vector3 normalize(Vector3 x)
+    Vector3 normalize(Vector3 x)
     {
         float mag = (float)Math.sqrt((x.x * x.x)+(x.y * x.y) +( x.z * x.z));
         return x.divide(mag);
     }
 }
-
-
-
-
-/*
-
-import java.awt.geom.Point2D;
-
-public class CircleIntersection {
-
-    public static Point2D[] findIntersectionPoints(double x1, double y1, double r1, double x2, double y2, double r2) {
-        double d = Math.sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1));
-
-        // Check for no intersection or one intersection (tangent)
-        if (d > r1 + r2 || d < Math.abs(r1 - r2)) {
-            return new Point2D[0]; // No intersection
-        }
-
-        // Calculate the angle between the line connecting the centers and the x-axis
-        double theta = Math.atan2(y2 - y1, x2 - x1);
-
-        // Calculate the coordinates of the intersection points
-        double intersectionX1 = x1 + r1 * Math.cos(theta);
-        double intersectionY1 = y1 + r1 * Math.sin(theta);
-        double intersectionX2 = x1 - r1 * Math.cos(theta);
-        double intersectionY2 = y1 - r1 * Math.sin(theta);
-
-        return new Point2D[] { new Point2D.Double(intersectionX1, intersectionY1),
-                               new Point2D.Double(intersectionX2, intersectionY2) };
-    }
-
-    public static void main(String[] args) {
-        // Circle 1: Center (2, 3), Radius 4
-        double x1 = 2;
-        double y1 = 3;
-        double r1 = 4;
-
-        // Circle 2: Center (6, 7), Radius 3
-        double x2 = 6;
-        double y2 = 7;
-        double r2 = 3;
-
-        Point2D[] intersections = findIntersectionPoints(x1, y1, r1, x2, y2, r2);
-
-        if (intersections.length == 0) {
-            System.out.println("The circles do not intersect.");
-        } else if (intersections.length == 1) {
-            System.out.println("The circles are tangent at point (" + intersections[0].getX() + ", " + intersections[0].getY() + ").");
-        } else {
-            System.out.println("The circles intersect at two points:");
-            System.out.println("Point 1: (" + intersections[0].getX() + ", " + intersections[0].getY() + ")");
-            System.out.println("Point 2: (" + intersections[1].getX() + ", " + intersections[1].getY() + ")");
-        }
-    }
-}
-
-
- */
